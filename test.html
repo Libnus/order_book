@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Depth Chart with Correct Gradient Fill</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      background: #0d1117;
+      color: #ccc;
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    svg {
+      background: #161b22;
+      border: 1px solid #333;
+      border-radius: 8px;
+    }
+    h2 {
+      color: #ccc;
+    }
+  </style>
+</head>
+<body>
+
+<h2>Order Book Depth Chart</h2>
+
+<svg id="depthChart" width="800" height="500"></svg>
+
+<script>
+// Setup dimensions
+const margin = {top: 20, right: 20, bottom: 30, left: 50};
+const width = 800 - margin.left - margin.right;
+const height = 500 - margin.top - margin.bottom;
+
+// Setup SVG
+const svg = d3.select("#depthChart")
+  .append("g")
+  .attr("transform", `translate(${margin.left},${margin.top})`);
+
+// Define gradients
+const defs = svg.append("defs");
+
+const bidGradient = defs.append("linearGradient")
+  .attr("id", "bidGradient")
+  .attr("x1", "0%").attr("y1", "0%")
+  .attr("x2", "0%").attr("y2", "100%");
+
+bidGradient.append("stop")
+  .attr("offset", "0%")
+  .attr("stop-color", "limegreen")
+  .attr("stop-opacity", 0.3);
+
+bidGradient.append("stop")
+  .attr("offset", "100%")
+  .attr("stop-color", "limegreen")
+  .attr("stop-opacity", 0);
+
+const askGradient = defs.append("linearGradient")
+  .attr("id", "askGradient")
+  .attr("x1", "0%").attr("y1", "0%")
+  .attr("x2", "0%").attr("y2", "100%");
+
+askGradient.append("stop")
+  .attr("offset", "0%")
+  .attr("stop-color", "crimson")
+  .attr("stop-opacity", 0.3);
+
+askGradient.append("stop")
+  .attr("offset", "100%")
+  .attr("stop-color", "crimson")
+  .attr("stop-opacity", 0);
+
+// Load order book JSON
+d3.json('order_book.json').then(function(orderBook) {
+
+  // Prepare bids and asks
+  const bids = orderBook.bids.sort((a, b) => b.price - a.price);
+  const asks = orderBook.asks.sort((a, b) => a.price - b.price);
+
+  let bidCumulative = 0;
+  const bidData = bids.map(d => {
+    bidCumulative += d.amount; // "amount" not "quantity"
+    return {price: d.price, cumulative: bidCumulative};
+  });
+
+  let askCumulative = 0;
+  const askData = asks.map(d => {
+    askCumulative += d.amount;
+    return {price: d.price, cumulative: askCumulative};
+  });
+
+  const allPrices = bidData.map(d => d.price).concat(askData.map(d => d.price));
+  const allQuantities = bidData.map(d => d.cumulative).concat(askData.map(d => d.cumulative));
+
+  // Setup scales
+  const x = d3.scaleLinear()
+    .domain(d3.extent(allPrices))
+    .range([0, width]);
+
+  const y = d3.scaleLinear()
+    .domain([0, d3.max(allQuantities) * 1.1]) // a little padding
+    .range([height, 0]);
+
+  // Axes
+  svg.append("g")
+    .attr("transform", `translate(0,${height})`)
+    .call(d3.axisBottom(x).tickFormat(d3.format(".2f")));
+
+  svg.append("g")
+    .call(d3.axisLeft(y));
+
+  // Line and area generators
+  const line = d3.line()
+    .x(d => x(d.price))
+    .y(d => y(d.cumulative))
+    .curve(d3.curveStepAfter);
+
+  const bidArea = d3.area()
+    .x(d => x(d.price))
+    .y0(height)
+    .y1(d => y(d.cumulative))
+    .curve(d3.curveStepAfter);
+
+  const askArea = d3.area()
+    .x(d => x(d.price))
+    .y0(height)
+    .y1(d => y(d.cumulative))
+    .curve(d3.curveStepAfter);
+
+  // Draw areas first
+  svg.append("path")
+    .datum(bidData)
+    .attr("fill", "url(#bidGradient)")
+    .attr("d", bidArea);
+
+  svg.append("path")
+    .datum(askData)
+    .attr("fill", "url(#askGradient)")
+    .attr("d", askArea);
+
+  // Draw lines on top
+  svg.append("path")
+    .datum(bidData)
+    .attr("fill", "none")
+    .attr("stroke", "limegreen")
+    .attr("stroke-width", 2)
+    .attr("d", line);
+
+  svg.append("path")
+    .datum(askData)
+    .attr("fill", "none")
+    .attr("stroke", "crimson")
+    .attr("stroke-width", 2)
+    .attr("d", line);
+
+}).catch(function(error) {
+  console.error('Error loading JSON:', error);
+});
+</script>
+
+</body>
+</html>

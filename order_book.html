@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dynamic Order Book</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    /*@font-face {
+      #font-family: 'Kraken-Product-Regular';
+      #src: url('./fonts/Kraken-Product-Regular.woff2') format('woff2');
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-weight: normal;
+      font-style: normal;
+    }*/
+    @font-face {
+      font-family: Iosevka;
+      src: url('./fonts/Iosevka-Regular.ttf');
+    }
+    svg {
+      background: #161b22;
+      border: 1px solid #333;
+      border-radius: 8px;
+      width: 100%;
+      height: 100%;
+    }
+      #depthChart text {
+        font-family: 'Kraken-Product-Regular', monospace;
+        font-size: 9px;
+        fill: #ccc; /* control text color too if you want */
+      }
+
+    h2 {
+      color: #ccc;
+    }
+    body {
+      background: #0d1117;
+      color: #ccc;
+      #font-family: 'Kraken-Product-Regular', monospace;
+      #font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-family: 'Iosevka';
+
+      display: flex;
+      justify-content: center;
+      padding: 20px;
+    }
+    .order-book {
+      background: #161b22;
+      border: 2px solid #30363d;
+      width: 500px;
+      min-height: 500px;
+      #width: 300px;
+      border-radius: 4px;
+      #overflow-y: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .order-book-container{
+      display: flex;
+      min-height: 300px;
+      #flex-direction: column;
+
+    }
+
+    .asks, .bids {
+      list-style: none;
+      margin: 0;
+      width: 37.5%;
+      padding: 0;
+      #max-height: 200px;
+      display: flex;
+      flex-direction: column;
+    }
+    .order {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 8px;
+      position: relative;
+      font-size: 13px;
+    }
+    .ask {
+      color: #ff4d4d;
+      background: rgba(255, 77, 77, 0.05);
+      margin-bottom: 3px;
+    }
+    .bid {
+      color: #00c080;
+      background: rgba(0, 192, 128, 0.05);
+      margin-bottom: 2px;
+
+    }
+    .order::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      z-index: 0;
+      background-color: currentColor;
+      opacity: 0.1;
+      width: 0%; /* Will be dynamically updated */
+    }
+    .price, .qty {
+      z-index: 1;
+    }
+    .current-price {
+      text-align: center;
+      font-size: 20px;
+      padding-top: 10px;
+      width: 25%;
+      background: #0d1117;
+      font-weight: bold;
+      color: #ccc;
+      border-top: 1px solid #30363d;
+      border-bottom: 1px solid #30363d;
+    }
+    .flash {
+      background: #ffcc00 !important;
+      color: #000 !important;
+    }
+    .price-up {
+      color: #00c080;
+    }
+    .price-down {
+      color: #ff4d4d;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="order-book">
+    <div class="order-book-container">
+      <ul class="asks" id="asks">
+        <li class="order ask"><span class="price">29484.1</span><span class="qty">2.44</span></li>
+        <li class="order ask"><span class="price">29483.1</span><span class="qty">0.03</span></li>
+        <li class="order ask"><span class="price">29482.6</span><span class="qty">0.34</span></li>
+        <li class="order ask"><span class="price">29482.2</span><span class="qty">2.59</span></li>
+        <li class="order ask"><span class="price">29482.0</span><span class="qty">0.30</span></li>
+      </ul>
+
+      <div class="current-price price-up" id="curr-price">$29481.3 ↑</div>
+
+      <ul class="bids" id="bids">
+        <li class="order bid"><span class="price">29481.2</span><span class="qty">0.35</span></li>
+        <li class="order bid"><span class="price">29481.0</span><span class="qty">0.06</span></li>
+        <li class="order bid"><span class="price">29480.0</span><span class="qty">0.001</span></li>
+        <li class="order bid"><span class="price">29479.8</span><span class="qty">0.0001</span></li>
+        <li class="order bid"><span class="price">29479.2</span><span class="qty">5.31</span></li>
+      </ul>
+    </div>
+
+    <svg id="depthChart"></svg>
+
+  </div>
+
+  <script>
+    function drawDepthChart(orderBook) {
+      // Clear existing SVG if you want to re-render
+      d3.select("#depthChart").selectAll("*").remove();
+
+      const svgElement = document.getElementById("depthChart");
+      const boundingBox = svgElement.getBoundingClientRect();
+
+      const fullWidth = boundingBox.width;
+      const fullHeight = boundingBox.height;
+
+      const margin = {top: 20, right: 20, bottom: 30, left: 50};
+      const width = fullWidth - margin.left - margin.right;
+      const height = fullHeight - margin.top - margin.bottom;
+
+
+      const svg = d3.select("#depthChart")
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+      // Define gradients again
+      const defs = svg.append("defs");
+
+      const bidGradient = defs.append("linearGradient")
+        .attr("id", "bidGradient")
+        .attr("x1", "0%").attr("y1", "0%")
+        .attr("x2", "0%").attr("y2", "100%");
+
+      bidGradient.append("stop")
+        .attr("offset", "0%")
+        .attr("stop-color", "limegreen")
+        .attr("stop-opacity", 0.3);
+
+      bidGradient.append("stop")
+        .attr("offset", "100%")
+        .attr("stop-color", "limegreen")
+        .attr("stop-opacity", 0);
+
+      const askGradient = defs.append("linearGradient")
+        .attr("id", "askGradient")
+        .attr("x1", "0%").attr("y1", "0%")
+        .attr("x2", "0%").attr("y2", "100%");
+
+      askGradient.append("stop")
+        .attr("offset", "0%")
+        .attr("stop-color", "crimson")
+        .attr("stop-opacity", 0.3);
+
+      askGradient.append("stop")
+        .attr("offset", "100%")
+        .attr("stop-color", "crimson")
+        .attr("stop-opacity", 0);
+
+      // Prepare bids and asks
+      const bids = orderBook.bids.sort((a, b) => b.price - a.price);
+      const asks = orderBook.asks.sort((a, b) => a.price - b.price);
+
+      let bidCumulative = 0;
+      const bidData = bids.map(d => {
+        bidCumulative += d.quantity;
+        return {price: d.price, cumulative: bidCumulative};
+      });
+
+      let askCumulative = 0;
+      const askData = asks.map(d => {
+        askCumulative += d.quantity;
+        return {price: d.price, cumulative: askCumulative};
+      });
+
+      const allPrices = bidData.map(d => d.price).concat(askData.map(d => d.price));
+      const allQuantities = bidData.map(d => d.cumulative).concat(askData.map(d => d.cumulative));
+
+      // Setup scales
+      const x = d3.scaleLinear()
+        .domain(d3.extent(allPrices))
+        .range([0, width]);
+
+      // const y = d3.scaleLinear()
+      //   .domain([0, d3.max(allQuantities) * 1.1])
+      //   .range([height, 0]);
+  //     const x = d3.scaleLinear()
+  // .domain([65.0, 150.0])  // you define your price range here!
+  // .range([0, width]);
+
+const y = d3.scaleLinear()
+  .domain([0, 50])      // you define maximum quantity here!
+  .range([height, 0]);
+
+
+      // X Axis
+svg.append("g")
+  .attr("transform", `translate(0,${height})`)
+  .call(d3.axisBottom(x).tickFormat(d3.format(".2f")))
+  .call(g => g.select(".domain").remove())  // remove axis line
+  .call(g => g.selectAll(".tick line").attr("stroke", "#555")); // customize tick lines color if you want
+
+// Y Axis
+svg.append("g")
+  .call(d3.axisLeft(y))
+  .call(g => g.select(".domain").remove()) 
+  .call(g => g.selectAll(".tick line").attr("stroke", "#555"));
+
+
+      // Line and area generators
+      const line = d3.line()
+        .x(d => x(d.price))
+        .y(d => y(d.cumulative))
+        .curve(d3.curveStepAfter);
+
+      const bidArea = d3.area()
+        .x(d => x(d.price))
+        .y0(height)
+        .y1(d => y(d.cumulative))
+        .curve(d3.curveStepAfter);
+
+      const askArea = d3.area()
+        .x(d => x(d.price))
+        .y0(height)
+        .y1(d => y(d.cumulative))
+        .curve(d3.curveStepAfter);
+
+      // Draw areas first
+      svg.append("path")
+        .datum(bidData)
+        .attr("fill", "url(#bidGradient)")
+        .attr("d", bidArea);
+
+      svg.append("path")
+        .datum(askData)
+        .attr("fill", "url(#askGradient)")
+        .attr("d", askArea);
+
+      // Draw lines on top
+      svg.append("path")
+        .datum(bidData)
+        .attr("fill", "none")
+        .attr("stroke", "limegreen")
+        .attr("stroke-width", 2)
+        .attr("d", line);
+
+      svg.append("path")
+        .datum(askData)
+        .attr("fill", "none")
+        .attr("stroke", "crimson")
+        .attr("stroke-width", 2)
+        .attr("d", line);
+    }
+
+
+    function roundToTwo(num) {
+      return Math.round((num + Number.EPSILON) * 100) / 100;
+    }
+
+    const socket = new WebSocket('ws://localhost:8000/ws');
+
+    socket.onopen = function(event) {
+      console.log('WebSocket connection opened');
+    };
+
+    socket.onmessage = function(event) {
+      const data = event.data;
+      console.log('Received data:', data);
+
+      try {
+        const parsedData = JSON.parse(data);
+        console.log('Parsed JSON:', parsedData);
+
+        const asksElement = document.getElementById('asks');
+        const bidsElement = document.getElementById('bids');
+        const priceElement = document.getElementById('curr-price');
+        priceElement.innerText = `\$${roundToTwo(parsedData.price)}`;
+
+        // Clear current asks and bids
+        asksElement.innerHTML = '';
+        bidsElement.innerHTML = '';
+
+        // Update asks
+        parsedData.asks.forEach(order => {
+          const li = document.createElement('li');
+          li.className = 'order ask';
+          li.innerHTML = `<span class="price">${roundToTwo(order.price)}</span><span class="qty">${order.quantity}</span>`;
+          asksElement.appendChild(li);
+        });
+
+        // Update bids
+        parsedData.bids.forEach(order => {
+          const li = document.createElement('li');
+          li.className = 'order bid';
+          li.innerHTML = `<span class="price">${roundToTwo(order.price)}</span><span class="qty">${order.quantity}</span>`;
+          bidsElement.appendChild(li);
+        });
+
+        // After updating the DOM, update the bars
+        updateBarsFixed();
+        drawDepthChart(parsedData);
+
+      } catch (e) {
+        console.error('Failed to parse JSON', e);
+      }
+    };
+
+
+    socket.onclose = function(event) {
+        console.log('WebSocket connection closed');
+    };
+
+    socket.onerror = function(error) {
+        console.error('WebSocket error:', error);
+    };
+
+    function updateBarsFixed() {
+      const askOrders = document.querySelectorAll("#asks .order");
+      const bidOrders = document.querySelectorAll("#bids .order");
+
+      const askQuantities = Array.from(askOrders).map(order => parseFloat(order.querySelector(".qty").innerText));
+      const bidQuantities = Array.from(bidOrders).map(order => parseFloat(order.querySelector(".qty").innerText));
+
+      const maxAskQty = Math.max(...askQuantities, 1);
+      const maxBidQty = Math.max(...bidQuantities, 1);
+
+      // Asks: right to left
+      askOrders.forEach((order, index) => {
+        const qty = askQuantities[index];
+        const widthPercent = (qty / maxAskQty) * 100;
+        order.style.background = `linear-gradient(to left, rgba(255,77,77,0.1) ${widthPercent}%, transparent ${widthPercent}%)`;
+      });
+
+      // Bids: left to right
+      bidOrders.forEach((order, index) => {
+        const qty = bidQuantities[index];
+        const widthPercent = (qty / maxBidQty) * 100;
+        order.style.background = `linear-gradient(to right, rgba(0,192,128,0.1) ${widthPercent}%, transparent ${widthPercent}%)`;
+      });
+    }
+
+
+    // // This version fixes the dynamic bars properly using inline styles:
+    // function updateBarsFixed() {
+    //   const askOrders = document.querySelectorAll("#asks .order");
+    //   const bidOrders = document.querySelectorAll("#bids .order");
+
+    //   const askQuantities = Array.from(askOrders).map(order => parseFloat(order.querySelector(".qty").innerText));
+    //   const bidQuantities = Array.from(bidOrders).map(order => parseFloat(order.querySelector(".qty").innerText));
+
+    //   const maxAskQty = Math.max(...askQuantities, 1);
+    //   const maxBidQty = Math.max(...bidQuantities, 1);
+
+    //   askOrders.forEach((order, index) => {
+    //     const qty = askQuantities[index];
+    //     const widthPercent = (qty / maxAskQty) * 100;
+    //     order.style.setProperty('--bar-width', `${widthPercent}%`);
+    //     order.querySelector("::before");
+    //     order.style.setProperty('--bar-width', `${widthPercent}%`);
+    //     order.style.setProperty('background', `linear-gradient(to right, rgba(255,77,77,0.1) ${widthPercent}%, transparent ${widthPercent}%)`);
+    //   });
+
+    //   bidOrders.forEach((order, index) => {
+    //     const qty = bidQuantities[index];
+    //     const widthPercent = (qty / maxBidQty) * 100;
+    //     order.querySelector("::before");
+    //     order.style.setProperty('--bar-width', `${widthPercent}%`);
+    //     order.style.setProperty('background', `linear-gradient(to right, rgba(0,192,128,0.1) ${widthPercent}%, transparent ${widthPercent}%)`);
+    //   });
+    // }
+
+    updateBarsFixed();
+  </script>
+
+</body>
+</html>
