@@ -21,7 +21,7 @@
       border: 1px solid #333;
       border-radius: 8px;
       width: 100%;
-      height: 100%;
+      height: 200px;
     }
       #depthChart text {
         font-family: 'Kraken-Product-Regular', monospace;
@@ -40,7 +40,9 @@
       font-family: 'Iosevka';
 
       display: flex;
-      justify-content: center;
+      flex-direction: column;
+      gap: 30px;
+      align-items: center;
       padding: 20px;
     }
     .order-book {
@@ -128,7 +130,7 @@
 </head>
 <body>
 
-  <div class="order-book">
+  <!-- <div class="order-book">
     <div class="order-book-container">
       <ul class="asks" id="asks">
         <li class="order ask"><span class="price">29484.1</span><span class="qty">2.44</span></li>
@@ -151,14 +153,15 @@
 
     <svg id="depthChart"></svg>
 
-  </div>
+  </div> -->
 
   <script>
-    function drawDepthChart(orderBook) {
+    function drawDepthChart(orderBook, svgId) {
       // Clear existing SVG if you want to re-render
-      d3.select("#depthChart").selectAll("*").remove();
+      d3.select(`#${svgId}`).selectAll("*").remove();
 
-      const svgElement = document.getElementById("depthChart");
+
+      const svgElement = document.getElementById(svgId);
       const boundingBox = svgElement.getBoundingClientRect();
 
       const fullWidth = boundingBox.width;
@@ -169,7 +172,7 @@
       const height = fullHeight - margin.top - margin.bottom;
 
 
-      const svg = d3.select("#depthChart")
+      const svg = d3.select(`#${svgId}`)
         .append("g")
         .attr("transform", `translate(${margin.left},${margin.top})`);
 
@@ -301,6 +304,122 @@ svg.append("g")
         .attr("d", line);
     }
 
+    function drawPriceChart(history, svgId) {
+      // clear existing chart
+      d3.select(`#${svgId}`).selectAll("*").remove();
+
+      const svgElement = document.getElementById(svgId);
+      const boundingBox = svgElement.getBoundingClientRect();
+
+      const fullWidth = boundingBox.width;
+      const fullHeight = boundingBox.height;
+      console.log(fullHeight);
+
+      const margin = { top: 20, right: 20, bottom: 30, left: 50 };
+      const width = fullWidth - margin.left - margin.right;
+      const height = fullHeight - margin.top - margin.bottom;
+
+      const svg = d3.select(`#${svgId}`)
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+      // Build the data: history is an array of prices
+      const priceData = history.map((price, index) => ({ time: index, price }));
+
+      // Scales
+      const x = d3.scaleLinear()
+        .domain([0, priceData.length - 1])
+        .range([0, width]);
+
+      const y = d3.scaleLinear()
+        .domain([
+          d3.min(priceData, d => d.price) * 0.98,
+          d3.max(priceData, d => d.price) * 1.02
+        ])
+        .range([height, 0]);
+
+      // Axes
+      svg.append("g")
+        .attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(x).ticks(5).tickFormat(d => `${d}s`))
+        .call(g => g.select(".domain").remove())
+        .call(g => g.selectAll(".tick line").attr("stroke", "#555"));
+
+      svg.append("g")
+        .call(d3.axisLeft(y).ticks(5))
+        .call(g => g.select(".domain").remove())
+        .call(g => g.selectAll(".tick line").attr("stroke", "#555"));
+
+      // Line generator
+      const line = d3.line()
+        .x(d => x(d.time))
+        .y(d => y(d.price))
+        .curve(d3.curveMonotoneX);
+
+      // Draw the price line
+      svg.append("path")
+        .datum(priceData)
+        .attr("fill", "none")
+        .attr("stroke", "#ccc")
+        .attr("stroke-width", 2)
+        .attr("d", line);
+    }
+
+
+    function renderStockOrderBook(stockName, data) {
+      let stockDiv = document.getElementById(`stock-${stockName}`);
+  
+      console.log(data);
+
+
+      if (!stockDiv) {
+        // First time seeing this stock — create DOM elements
+        stockDiv = document.createElement('div');
+        stockDiv.className = 'stock';
+        stockDiv.id = `stock-${stockName}`;
+        stockDiv.innerHTML = `
+          <h3>${stockName}</h3>
+          <div class="order-book">
+            <div class="order-book-container">
+              <ul class="asks" id="asks-${stockName}"></ul>
+              <div class="current-price price-up" id="curr-price-${stockName}">$0.00</div>
+              <ul class="bids" id="bids-${stockName}"></ul>
+            </div>
+            <svg id="priceChart-${stockName}"></svg>
+          </div>
+        `;
+        document.body.appendChild(stockDiv);
+      }
+
+      // Update text + DOM
+      document.getElementById(`curr-price-${stockName}`).innerText = `$${roundToTwo(data.price)}`;
+
+      const asksEl = document.getElementById(`asks-${stockName}`);
+      const bidsEl = document.getElementById(`bids-${stockName}`);
+      asksEl.innerHTML = '';
+      bidsEl.innerHTML = '';
+
+
+      data.asks.forEach(order => {
+        const li = document.createElement('li');
+        li.className = 'order ask';
+        li.innerHTML = `<span class="price">${roundToTwo(order.price)}</span><span class="qty">${order.quantity}</span>`;
+        asksEl.appendChild(li);
+      });
+
+      data.bids.forEach(order => {
+        const li = document.createElement('li');
+        li.className = 'order bid';
+        li.innerHTML = `<span class="price">${roundToTwo(order.price)}</span><span class="qty">${order.quantity}</span>`;
+        bidsEl.appendChild(li);
+      });
+
+      updateBarsFixed(`asks-${stockName}`, `bids-${stockName}`);
+      drawPriceChart(data.history, `priceChart-${stockName}`);
+    }
+
+
+
 
     function roundToTwo(num) {
       return Math.round((num + Number.EPSILON) * 100) / 100;
@@ -317,37 +436,44 @@ svg.append("g")
       console.log('Received data:', data);
 
       try {
-        const parsedData = JSON.parse(data);
+        const parsedData = JSON.parse(data)["stocks"];
+
         console.log('Parsed JSON:', parsedData);
 
-        const asksElement = document.getElementById('asks');
-        const bidsElement = document.getElementById('bids');
-        const priceElement = document.getElementById('curr-price');
-        priceElement.innerText = `\$${roundToTwo(parsedData.price)}`;
-
-        // Clear current asks and bids
-        asksElement.innerHTML = '';
-        bidsElement.innerHTML = '';
-
-        // Update asks
-        parsedData.asks.forEach(order => {
-          const li = document.createElement('li');
-          li.className = 'order ask';
-          li.innerHTML = `<span class="price">${roundToTwo(order.price)}</span><span class="qty">${order.quantity}</span>`;
-          asksElement.appendChild(li);
+        Object.keys(parsedData).forEach(stockName => {
+          console.log(stockName, parsedData[stockName]);
+          renderStockOrderBook(stockName, parsedData[stockName]);
         });
 
-        // Update bids
-        parsedData.bids.forEach(order => {
-          const li = document.createElement('li');
-          li.className = 'order bid';
-          li.innerHTML = `<span class="price">${roundToTwo(order.price)}</span><span class="qty">${order.quantity}</span>`;
-          bidsElement.appendChild(li);
-        });
 
-        // After updating the DOM, update the bars
-        updateBarsFixed();
-        drawDepthChart(parsedData);
+        // const asksElement = document.getElementById('asks');
+        // const bidsElement = document.getElementById('bids');
+        // const priceElement = document.getElementById('curr-price');
+        // priceElement.innerText = `\$${roundToTwo(parsedData.price)}`;
+
+        // // Clear current asks and bids
+        // asksElement.innerHTML = '';
+        // bidsElement.innerHTML = '';
+
+        // // Update asks
+        // parsedData.asks.forEach(order => {
+        //   const li = document.createElement('li');
+        //   li.className = 'order ask';
+        //   li.innerHTML = `<span class="price">${roundToTwo(order.price)}</span><span class="qty">${order.quantity}</span>`;
+        //   asksElement.appendChild(li);
+        // });
+
+        // // Update bids
+        // parsedData.bids.forEach(order => {
+        //   const li = document.createElement('li');
+        //   li.className = 'order bid';
+        //   li.innerHTML = `<span class="price">${roundToTwo(order.price)}</span><span class="qty">${order.quantity}</span>`;
+        //   bidsElement.appendChild(li);
+        // });
+
+        // // After updating the DOM, update the bars
+        // updateBarsFixed();
+        // drawDepthChart(parsedData);
 
       } catch (e) {
         console.error('Failed to parse JSON', e);
@@ -363,9 +489,9 @@ svg.append("g")
         console.error('WebSocket error:', error);
     };
 
-    function updateBarsFixed() {
-      const askOrders = document.querySelectorAll("#asks .order");
-      const bidOrders = document.querySelectorAll("#bids .order");
+    function updateBarsFixed(asksId, bidsId) {
+      const askOrders = document.querySelectorAll(`#${asksId} .order`);
+      const bidOrders = document.querySelectorAll(`#${bidsId} .order`);
 
       const askQuantities = Array.from(askOrders).map(order => parseFloat(order.querySelector(".qty").innerText));
       const bidQuantities = Array.from(bidOrders).map(order => parseFloat(order.querySelector(".qty").innerText));
